@@ -45,12 +45,23 @@ class PaymentController extends Controller
             $billingId = $request->bid;
             $billing = Billing::findOrFail($billingId);
 
+            // Check if payment already exists
+            $existingPayment = $billing->payments()->where('amount', $billing->amount)->first();
+            if ($existingPayment) {
+                return redirect()
+                    ->route('createTransaction', ['bid' => $billingId])
+                    ->with('success', 'Payment already completed for this billing.');
+            }
+
             // Validate billing amount
             if (!$billing->amount || $billing->amount <= 0) {
                 return redirect()
-                    ->route('createTransaction')
+                    ->route('createTransaction', ['bid' => $billingId])
                     ->with('error', 'Invalid billing amount.');
             }
+
+            // Clear old token before creating new order (in case of retry)
+            $billing->update(['token' => null]);
 
             $provider = $this->buildPayPalClient();
 
@@ -109,13 +120,15 @@ class PaymentController extends Controller
             }
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             Log::error('Payment Error - Billing not found: ' . $e->getMessage());
+            $billingId = $request->has('bid') ? $request->bid : null;
             return redirect()
-                ->route('createTransaction')
+                ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
                 ->with('error', 'Billing record not found.');
         } catch (Exception $e) {
             Log::error('Payment Error - processTransaction: ' . $e->getMessage() . ' | Trace: ' . $e->getTraceAsString());
+            $billingId = $request->has('bid') ? $request->bid : null;
             return redirect()
-                ->route('createTransaction')
+                ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
                 ->with('error', 'An error occurred while processing your payment. Please try again.');
         }
     }
@@ -131,8 +144,12 @@ class PaymentController extends Controller
             // Validate token parameter
             if (!$request->has('token') || !$request->token) {
                 Log::error('Payment Error - Missing token in successTransaction');
+                
+                // Try to get billing ID from request if available
+                $billingId = $request->has('bid') ? $request->bid : null;
+                
                 return redirect()
-                    ->route('createTransaction')
+                    ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
                     ->with('error', 'Payment token is missing. Please try again.');
             }
 
@@ -145,8 +162,18 @@ class PaymentController extends Controller
             if (isset($response['error']) || isset($response['error_description'])) {
                 $errorMessage = $response['error_description'] ?? $response['error'] ?? 'Payment capture failed.';
                 Log::error('PayPal Capture Error: ' . json_encode($response));
+                
+                // Find billing by token to get the billing ID for redirect
+                $billing = Billing::where('token', $token)->first();
+                $billingId = $billing ? $billing->id : null;
+                
+                // Clear token on error so user can retry
+                if ($billing) {
+                    $billing->update(['token' => null]);
+                }
+                
                 return redirect()
-                    ->route('createTransaction')
+                    ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
                     ->with('error', $errorMessage);
             }
 
@@ -170,32 +197,68 @@ class PaymentController extends Controller
                     ]);
                 }
                 
+                // Clear the token after successful payment
+                $billing->update(['token' => null]);
+                
                 return redirect()
-                    ->route('createTransaction')
+                    ->route('createTransaction', ['bid' => $billing->id])
                     ->with('success', 'Transaction Complete.');
             } else {
                 $errorMessage = $response['message'] ?? $response['name'] ?? 'Payment was not completed.';
                 Log::warning('PayPal Payment Not Completed: ' . json_encode($response));
+                
+                // Clear token on failure so user can retry
+                if ($billing) {
+                    $billing->update(['token' => null]);
+                }
+                
                 return redirect()
-                    ->route('createTransaction')
+                    ->route('createTransaction', ['bid' => $billing->id])
                     ->with('error', $errorMessage);
             }
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
             Log::error('Payment Error - Billing not found in successTransaction: ' . $e->getMessage());
+            // Try to get billing ID from request or token
+            $billingId = null;
+            if ($request->has('bid')) {
+                $billingId = $request->bid;
+            } elseif ($request->has('token')) {
+                $billing = Billing::where('token', $request->token)->first();
+                $billingId = $billing ? $billing->id : null;
+            }
             return redirect()
-                ->route('createTransaction')
+                ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
                 ->with('error', 'Billing record not found. Please contact support.');
         } catch (Exception $e) {
             Log::error('Payment Error - successTransaction: ' . $e->getMessage() . ' | Trace: ' . $e->getTraceAsString());
+            // Try to get billing ID from request or token
+            $billingId = null;
+            if ($request->has('bid')) {
+                $billingId = $request->bid;
+            } elseif ($request->has('token')) {
+                $billing = Billing::where('token', $request->token)->first();
+                $billingId = $billing ? $billing->id : null;
+            }
             return redirect()
-                ->route('createTransaction')
+                ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
                 ->with('error', 'An error occurred while completing your payment. Please contact support if the payment was deducted.');
         }
     }
 
     public function cancelTransaction(Request $request) {
+        // Try to get billing ID from token if available
+        $billingId = null;
+        if ($request->has('token') && $request->token) {
+            $billing = Billing::where('token', $request->token)->first();
+            if ($billing) {
+                $billingId = $billing->id;
+                // Clear token when user cancels
+                $billing->update(['token' => null]);
+            }
+        }
+        
         return redirect()
-            ->route('createTransaction')
+            ->route('createTransaction', $billingId ? ['bid' => $billingId] : [])
             ->with('error', 'You have canceled the transaction.');
     }
 

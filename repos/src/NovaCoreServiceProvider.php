@@ -12,7 +12,6 @@ use Laravel\Nova\Http\Middleware\ServeNova;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Laravel\Nova\Listeners\BootNova;
 use Laravel\Nova\Query\Builder;
-use Laravel\Octane\Events\RequestReceived;
 use Spatie\Once\Cache;
 
 /**
@@ -35,7 +34,9 @@ class NovaCoreServiceProvider extends ServiceProvider
             $this->app->register(NovaServiceProvider::class);
         }
 
-        if (! $this->app->configurationIsCached()) {
+        // Only merge config if not cached (check if config cache file exists)
+        $configPath = base_path('bootstrap/cache/config.php');
+        if (! file_exists($configPath)) {
             $this->mergeConfigFrom(__DIR__.'/../config/nova.php', 'nova');
         }
 
@@ -51,10 +52,14 @@ class NovaCoreServiceProvider extends ServiceProvider
         });
 
         tap($this->app['events'], function ($event) {
-            $event->listen(RequestReceived::class, function ($event) {
-                Nova::flushState();
-                Cache::getInstance()->flush();
-            });
+            // Only listen to Octane events if Octane is installed
+            $octaneEventClass = 'Laravel\Octane\Events\RequestReceived';
+            if (class_exists($octaneEventClass)) {
+                $event->listen($octaneEventClass, function () {
+                    Nova::flushState();
+                    Cache::getInstance()->flush();
+                });
+            }
 
             $event->listen(RequestHandled::class, function ($event) {
                 Container::getInstance()->forgetInstance(NovaRequest::class);

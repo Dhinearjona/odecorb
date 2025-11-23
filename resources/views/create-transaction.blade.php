@@ -255,7 +255,7 @@
             <div class="text-center space-y-4">
                 <h1 class="text-2xl font-bold">⚠️ Payment Error</h1>
                 <p>{{ session('error') }}</p>
-                <a href="{{ route('createTransaction') }}">
+                <a href="{{ route('createTransaction', request()->has('bid') ? ['bid' => request()->bid] : []) }}">
                     <button
                         class="bg-white text-center w-48 rounded-2xl h-14 relative text-black text-xl font-semibold group"
                     >
