@@ -11,4 +11,3 @@ Options -Indexes
 
 # Set default index file
 DirectoryIndex index.php index.html
-
