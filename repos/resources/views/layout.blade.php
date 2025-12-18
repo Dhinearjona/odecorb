@@ -88,7 +88,7 @@
 
                     <div class="flex items-center gap-4">
                         <a v-if="@json(\Laravel\Nova\Nova::name() !== null)" href="/" class="no-underline  font-bold text-90 mr-6">
-                            {{ \Laravel\Nova\Nova::name() }}
+                            Odecorb
                         </a>
                         <a v-if="@json(\Laravel\Nova\Nova::name() !== null)" href="/app/dashboards/main" class="flex items-center gap-2 no-underline  text-90">
                             {{-- <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
